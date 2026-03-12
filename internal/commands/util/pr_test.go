@@ -3,6 +3,7 @@ package util
 import (
 	"testing"
 
+	"github.com/checkmarx/ast-cli/internal/wrappers"
 	"github.com/checkmarx/ast-cli/internal/wrappers/mock"
 	asserts "github.com/stretchr/testify/assert"
 
@@ -14,7 +15,7 @@ const (
 )
 
 func TestNewGithubPRDecorationCommandMustExist(t *testing.T) {
-	cmd := PRDecorationGithub(nil, nil, nil)
+	cmd := PRDecorationGithub(nil, nil, nil, nil)
 	assert.Assert(t, cmd != nil, "PR decoration command must exist")
 
 	err := cmd.Execute()
@@ -22,7 +23,7 @@ func TestNewGithubPRDecorationCommandMustExist(t *testing.T) {
 }
 
 func TestNewGitlabMRDecorationCommandMustExist(t *testing.T) {
-	cmd := PRDecorationGitlab(nil, nil, nil)
+	cmd := PRDecorationGitlab(nil, nil, nil, nil)
 	assert.Assert(t, cmd != nil, "MR decoration command must exist")
 
 	err := cmd.Execute()
@@ -30,7 +31,7 @@ func TestNewGitlabMRDecorationCommandMustExist(t *testing.T) {
 }
 
 func TestNewAzurePRDecorationCommandMustExist(t *testing.T) {
-	cmd := PRDecorationAzure(nil, nil, nil)
+	cmd := PRDecorationAzure(nil, nil, nil, nil)
 	assert.Assert(t, cmd != nil, "PR decoration command must exist")
 
 	err := cmd.Execute()
@@ -54,8 +55,124 @@ func TestIsScanRunning_WhenScanDone_ShouldReturnFalse(t *testing.T) {
 func TestPRDecorationGithub_WhenNoViolatedPolicies_ShouldNotReturnPolicy(t *testing.T) {
 	prMockWrapper := &mock.PolicyMockWrapper{}
 	policyResponse, _, _ := prMockWrapper.EvaluatePolicy(nil)
-	prPolicy := policiesToPrPolicies(policyResponse)
+	prPolicy := policiesToPrPolicies(policyResponse, nil)
 	asserts.True(t, len(prPolicy) == 0)
+}
+
+func TestPoliciesToPrPolicies_WhenViolatedPoliciesWithMatchingFindings_ShouldIncludeFindings(t *testing.T) {
+	policyWrapper := &mock.PolicyMockWrapper{ViolatedRules: []string{"mock-query-name-1"}}
+	policyResponse, _, _ := policyWrapper.EvaluatePolicy(nil)
+
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:           "finding-1",
+				Type:         "sast",
+				Severity:     "high",
+				State:        "TO_VERIFY",
+				SimilarityID: "sim-1",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "mock-query-name-1",
+				},
+			},
+			{
+				ID:           "finding-2",
+				Type:         "sast",
+				Severity:     "medium",
+				State:        "TO_VERIFY",
+				SimilarityID: "sim-2",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "other-rule",
+				},
+			},
+		},
+	}
+
+	prPolicies := policiesToPrPolicies(policyResponse, scanResults)
+
+	asserts.Equal(t, 1, len(prPolicies))
+	asserts.Equal(t, "MOCK_NAME", prPolicies[0].Name)
+	asserts.Equal(t, 1, len(prPolicies[0].Findings))
+	asserts.Equal(t, "finding-1", prPolicies[0].Findings[0].ID)
+	asserts.Equal(t, "sast", prPolicies[0].Findings[0].Type)
+	asserts.Equal(t, "high", prPolicies[0].Findings[0].Severity)
+	asserts.Equal(t, "TO_VERIFY", prPolicies[0].Findings[0].State)
+	asserts.Equal(t, "sim-1", prPolicies[0].Findings[0].SimilarityID)
+}
+
+func TestPoliciesToPrPolicies_WhenViolatedPoliciesWithNoMatchingFindings_ShouldReturnEmptyFindings(t *testing.T) {
+	policyWrapper := &mock.PolicyMockWrapper{ViolatedRules: []string{"some-rule"}}
+	policyResponse, _, _ := policyWrapper.EvaluatePolicy(nil)
+
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:       "finding-1",
+				Type:     "sast",
+				Severity: "high",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "different-rule",
+				},
+			},
+		},
+	}
+
+	prPolicies := policiesToPrPolicies(policyResponse, scanResults)
+
+	asserts.Equal(t, 1, len(prPolicies))
+	asserts.Equal(t, 0, len(prPolicies[0].Findings))
+}
+
+func TestPoliciesToPrPolicies_WhenNilScanResults_ShouldReturnEmptyFindings(t *testing.T) {
+	policyWrapper := &mock.PolicyMockWrapper{ViolatedRules: []string{"some-rule"}}
+	policyResponse, _, _ := policyWrapper.EvaluatePolicy(nil)
+
+	prPolicies := policiesToPrPolicies(policyResponse, nil)
+
+	asserts.Equal(t, 1, len(prPolicies))
+	asserts.Equal(t, 0, len(prPolicies[0].Findings))
+}
+
+func TestBuildFindingsByRuleMap_WhenNilResults_ShouldReturnEmptyMap(t *testing.T) {
+	result := buildFindingsByRuleMap(nil)
+	asserts.Equal(t, 0, len(result))
+}
+
+func TestBuildFindingsByRuleMap_WhenResultsWithQueryNames_ShouldGroupByRule(t *testing.T) {
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:       "1",
+				Type:     "sast",
+				Severity: "high",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "rule-a",
+				},
+			},
+			{
+				ID:       "2",
+				Type:     "sast",
+				Severity: "medium",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "rule-a",
+				},
+			},
+			{
+				ID:       "3",
+				Type:     "sca",
+				Severity: "low",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "rule-b",
+				},
+			},
+		},
+	}
+
+	result := buildFindingsByRuleMap(scanResults)
+
+	asserts.Equal(t, 2, len(result))
+	asserts.Equal(t, 2, len(result["rule-a"]))
+	asserts.Equal(t, 1, len(result["rule-b"]))
 }
 
 func TestUpdateAPIURLForGithubOnPrem_whenAPIURLIsSet_ShouldUpdateAPIURL(t *testing.T) {

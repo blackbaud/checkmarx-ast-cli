@@ -240,6 +240,7 @@ func NewAstCLI(
 		applicationsWrapper,
 		byorWrapper,
 		featureFlagsWrapper,
+		resultsWrapper,
 	)
 
 	configCmd := util.NewConfigCommand()

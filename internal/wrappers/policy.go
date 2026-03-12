@@ -16,9 +16,18 @@ type Policy struct {
 }
 
 type PrPolicy struct {
-	Name       string   `json:"policyName"`
-	RulesNames []string `json:"rulesNames"`
-	BreakBuild bool     `json:"breakBuild"`
+	Name       string      `json:"policyName"`
+	RulesNames []string    `json:"rulesNames"`
+	BreakBuild bool        `json:"breakBuild"`
+	Findings   []PrFinding `json:"findings"`
+}
+
+type PrFinding struct {
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Severity     string `json:"severity"`
+	State        string `json:"state"`
+	SimilarityID string `json:"similarityId"`
 }
 
 type PolicyWrapper interface {
