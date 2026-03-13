@@ -35,7 +35,7 @@ const (
 	errorAzureOnPremParams              = "code-repository-url must be set when code-repository-username is set"
 )
 
-func NewPRDecorationCommand(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper) *cobra.Command {
+func NewPRDecorationCommand(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper, resultsWrapper wrappers.ResultsWrapper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pr",
 		Short: "Posts the comment with scan results on the Pull Request",
@@ -46,10 +46,10 @@ func NewPRDecorationCommand(prWrapper wrappers.PRWrapper, policyWrapper wrappers
 		),
 	}
 
-	prDecorationGithub := PRDecorationGithub(prWrapper, policyWrapper, scansWrapper)
-	prDecorationGitlab := PRDecorationGitlab(prWrapper, policyWrapper, scansWrapper)
-	prDecorationBitbucket := PRDecorationBitbucket(prWrapper, policyWrapper, scansWrapper)
-	prDecorationAzure := PRDecorationAzure(prWrapper, policyWrapper, scansWrapper)
+	prDecorationGithub := PRDecorationGithub(prWrapper, policyWrapper, scansWrapper, resultsWrapper)
+	prDecorationGitlab := PRDecorationGitlab(prWrapper, policyWrapper, scansWrapper, resultsWrapper)
+	prDecorationBitbucket := PRDecorationBitbucket(prWrapper, policyWrapper, scansWrapper, resultsWrapper)
+	prDecorationAzure := PRDecorationAzure(prWrapper, policyWrapper, scansWrapper, resultsWrapper)
 
 	cmd.AddCommand(prDecorationGithub)
 	cmd.AddCommand(prDecorationGitlab)
@@ -87,7 +87,7 @@ func IsScanRunningOrQueued(scansWrapper wrappers.ScansWrapper, scanID string) (b
 	return false, nil
 }
 
-func PRDecorationGithub(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper) *cobra.Command {
+func PRDecorationGithub(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper, resultsWrapper wrappers.ResultsWrapper) *cobra.Command {
 	prDecorationGithub := &cobra.Command{
 		Use:   "github",
 		Short: "Decorate github PR with vulnerabilities",
@@ -104,7 +104,7 @@ func PRDecorationGithub(prWrapper wrappers.PRWrapper, policyWrapper wrappers.Pol
 			`,
 			),
 		},
-		RunE: runPRDecoration(prWrapper, policyWrapper, scansWrapper),
+		RunE: runPRDecoration(prWrapper, policyWrapper, scansWrapper, resultsWrapper),
 	}
 
 	prDecorationGithub.Flags().String(params.CodeRepositoryFlag, "", params.CodeRepositoryFlagUsage)
@@ -127,7 +127,7 @@ func PRDecorationGithub(prWrapper wrappers.PRWrapper, policyWrapper wrappers.Pol
 	return prDecorationGithub
 }
 
-func PRDecorationGitlab(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper) *cobra.Command {
+func PRDecorationGitlab(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper, resultsWrapper wrappers.ResultsWrapper) *cobra.Command {
 	prDecorationGitlab := &cobra.Command{
 		Use:   "gitlab",
 		Short: "Decorate gitlab PR with vulnerabilities",
@@ -144,7 +144,7 @@ func PRDecorationGitlab(prWrapper wrappers.PRWrapper, policyWrapper wrappers.Pol
 			`,
 			),
 		},
-		RunE: runPRDecorationGitlab(prWrapper, policyWrapper, scansWrapper),
+		RunE: runPRDecorationGitlab(prWrapper, policyWrapper, scansWrapper, resultsWrapper),
 	}
 
 	prDecorationGitlab.Flags().String(params.CodeRepositoryFlag, "", params.CodeRepositoryFlagUsage)
@@ -169,7 +169,7 @@ func PRDecorationGitlab(prWrapper wrappers.PRWrapper, policyWrapper wrappers.Pol
 	return prDecorationGitlab
 }
 
-func PRDecorationAzure(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper) *cobra.Command {
+func PRDecorationAzure(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper, resultsWrapper wrappers.ResultsWrapper) *cobra.Command {
 	prDecorationAzure := &cobra.Command{
 		Use:   "azure",
 		Short: "Decorate azure PR with vulnerabilities",
@@ -186,7 +186,7 @@ func PRDecorationAzure(prWrapper wrappers.PRWrapper, policyWrapper wrappers.Poli
 			`,
 			),
 		},
-		RunE: runPRDecorationAzure(prWrapper, policyWrapper, scansWrapper),
+		RunE: runPRDecorationAzure(prWrapper, policyWrapper, scansWrapper, resultsWrapper),
 	}
 
 	prDecorationAzure.Flags().String(params.ScanIDFlag, "", "Scan ID to retrieve results from")
@@ -210,7 +210,7 @@ func PRDecorationAzure(prWrapper wrappers.PRWrapper, policyWrapper wrappers.Poli
 	return prDecorationAzure
 }
 
-func PRDecorationBitbucket(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper) *cobra.Command {
+func PRDecorationBitbucket(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper, resultsWrapper wrappers.ResultsWrapper) *cobra.Command {
 	prDecorationBitbucket := &cobra.Command{
 		Use:   "bitbucket ",
 		Short: "Decorate bitbucket PR with vulnerabilities",
@@ -227,7 +227,7 @@ func PRDecorationBitbucket(prWrapper wrappers.PRWrapper, policyWrapper wrappers.
 			`,
 			),
 		},
-		RunE: runPRDecorationBitbucket(prWrapper, policyWrapper, scansWrapper),
+		RunE: runPRDecorationBitbucket(prWrapper, policyWrapper, scansWrapper, resultsWrapper),
 	}
 
 	prDecorationBitbucket.Flags().String(params.ScanIDFlag, "", "Scan ID to retrieve results from")
@@ -250,7 +250,7 @@ func PRDecorationBitbucket(prWrapper wrappers.PRWrapper, policyWrapper wrappers.
 	return prDecorationBitbucket
 }
 
-func runPRDecoration(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper) func(cmd *cobra.Command, args []string) error {
+func runPRDecoration(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper, resultsWrapper wrappers.ResultsWrapper) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		scanID, _ := cmd.Flags().GetString(params.ScanIDFlag)
 		scmTokenFlag, _ := cmd.Flags().GetString(params.SCMTokenFlag)
@@ -271,7 +271,7 @@ func runPRDecoration(prWrapper wrappers.PRWrapper, policyWrapper wrappers.Policy
 		}
 
 		// Retrieve policies related to the scan and project to include in the PR decoration
-		policies, policyError := getScanViolatedPolicies(scansWrapper, policyWrapper, scanID, cmd)
+		policies, policyError := getScanViolatedPolicies(scansWrapper, policyWrapper, resultsWrapper, scanID, cmd)
 		if policyError != nil {
 			return errors.Errorf(policyErrorFormat, failedCreatingGithubPrDecoration)
 		}
@@ -324,7 +324,7 @@ func getAzureAPIURL(apiURL string) string {
 	return azureCloudURL
 }
 
-func runPRDecorationGitlab(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper) func(cmd *cobra.Command, args []string) error {
+func runPRDecorationGitlab(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper, resultsWrapper wrappers.ResultsWrapper) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		scanID, _ := cmd.Flags().GetString(params.ScanIDFlag)
 		scmTokenFlag, _ := cmd.Flags().GetString(params.SCMTokenFlag)
@@ -346,7 +346,7 @@ func runPRDecorationGitlab(prWrapper wrappers.PRWrapper, policyWrapper wrappers.
 		}
 
 		// Retrieve policies related to the scan and project to include in the PR decoration
-		policies, policyError := getScanViolatedPolicies(scansWrapper, policyWrapper, scanID, cmd)
+		policies, policyError := getScanViolatedPolicies(scansWrapper, policyWrapper, resultsWrapper, scanID, cmd)
 		if policyError != nil {
 			return errors.Errorf(policyErrorFormat, failedCreatingGitlabPrDecoration)
 		}
@@ -381,7 +381,7 @@ func runPRDecorationGitlab(prWrapper wrappers.PRWrapper, policyWrapper wrappers.
 	}
 }
 
-func runPRDecorationBitbucket(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper) func(cmd *cobra.Command, args []string) error {
+func runPRDecorationBitbucket(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper, resultsWrapper wrappers.ResultsWrapper) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		scanID, _ := cmd.Flags().GetString(params.ScanIDFlag)
 		scmTokenFlag, _ := cmd.Flags().GetString(params.SCMTokenFlag)
@@ -407,7 +407,7 @@ func runPRDecorationBitbucket(prWrapper wrappers.PRWrapper, policyWrapper wrappe
 			return nil
 		}
 
-		policies, policyError := getScanViolatedPolicies(scansWrapper, policyWrapper, scanID, cmd)
+		policies, policyError := getScanViolatedPolicies(scansWrapper, policyWrapper, resultsWrapper, scanID, cmd)
 		if policyError != nil {
 			return errors.Errorf(policyErrorFormat, failedCreatingBitbucketPrDecoration)
 		}
@@ -428,7 +428,7 @@ func runPRDecorationBitbucket(prWrapper wrappers.PRWrapper, policyWrapper wrappe
 	}
 }
 
-func runPRDecorationAzure(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper) func(cmd *cobra.Command, args []string) error {
+func runPRDecorationAzure(prWrapper wrappers.PRWrapper, policyWrapper wrappers.PolicyWrapper, scansWrapper wrappers.ScansWrapper, resultsWrapper wrappers.ResultsWrapper) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		scanID, _ := cmd.Flags().GetString(params.ScanIDFlag)
 		scmTokenFlag, _ := cmd.Flags().GetString(params.SCMTokenFlag)
@@ -455,7 +455,7 @@ func runPRDecorationAzure(prWrapper wrappers.PRWrapper, policyWrapper wrappers.P
 		}
 
 		// Retrieve policies related to the scan and project to include in the PR decoration
-		policies, policyError := getScanViolatedPolicies(scansWrapper, policyWrapper, scanID, cmd)
+		policies, policyError := getScanViolatedPolicies(scansWrapper, policyWrapper, resultsWrapper, scanID, cmd)
 		if policyError != nil {
 			return errors.Errorf(policyErrorFormat, failedCreatingAzurePrDecoration)
 		}
@@ -562,7 +562,7 @@ func createBBPRModel(isCloud bool, scanID, scmTokenFlag, namespaceFlag, repoName
 	}
 }
 
-func getScanViolatedPolicies(scansWrapper wrappers.ScansWrapper, policyWrapper wrappers.PolicyWrapper, scanID string, cmd *cobra.Command) ([]wrappers.PrPolicy, error) {
+func getScanViolatedPolicies(scansWrapper wrappers.ScansWrapper, policyWrapper wrappers.PolicyWrapper, resultsWrapper wrappers.ResultsWrapper, scanID string, cmd *cobra.Command) ([]wrappers.PrPolicy, error) {
 	// retrieve scan model to get the projectID
 	scanResponseModel, errorScanModel, err := scansWrapper.GetByID(scanID)
 	if err != nil {
@@ -571,7 +571,10 @@ func getScanViolatedPolicies(scansWrapper wrappers.ScansWrapper, policyWrapper w
 	if errorScanModel != nil {
 		return nil, err
 	}
-	// retrieve policy information to send to the PR service
+	// retrieve policy information to send to the PR service.
+	// The Checkmarx policy engine applies all configured rule filters (e.g. severity thresholds,
+	// dev/test dependency exclusions) server-side before returning RulesViolated. The resulting
+	// list is therefore accurate: only rules that genuinely fired after filtering appear here.
 	policyResponseModel, err := policymanagement.HandlePolicyWait(waitDelayDefault,
 		resultPolicyDefaultTimeout,
 		policyWrapper,
@@ -581,12 +584,24 @@ func getScanViolatedPolicies(scansWrapper wrappers.ScansWrapper, policyWrapper w
 	if err != nil {
 		return nil, err
 	}
+	// retrieve scan results to associate findings with violated policies.
+	// NOTE: The Checkmarx API does not expose the filter configuration of individual policy rules
+	// (e.g. "exclude dev/test dependencies", "only HIGH severity"). Consequently the findings
+	// attached to each PrPolicy are the maximal set that match the rule name — they may include
+	// results that the policy engine excluded via its rule filters. The RulesViolated list itself
+	// is authoritative (the server applied all filters), but the per-rule finding list is a
+	// best-effort approximation.
+	scanResults, _, err := resultsWrapper.GetAllResultsByScanID(map[string]string{params.ScanIDQueryParam: scanID})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to retrieve scan results for scan %s", scanID)
+	}
 	// transform into the PR model for violated policies
-	violatedPolicies := policiesToPrPolicies(policyResponseModel)
+	violatedPolicies := policiesToPrPolicies(policyResponseModel, scanResults)
 	return violatedPolicies, nil
 }
 
-func policiesToPrPolicies(policy *wrappers.PolicyResponseModel) []wrappers.PrPolicy {
+func policiesToPrPolicies(policy *wrappers.PolicyResponseModel, scanResults *wrappers.ScanResultsCollection) []wrappers.PrPolicy {
+	findingsByRule := buildFindingsByRuleMap(scanResults)
 	var prPolicies []wrappers.PrPolicy
 	if policy != nil {
 		for _, policy := range policy.Policies {
@@ -597,8 +612,60 @@ func policiesToPrPolicies(policy *wrappers.PolicyResponseModel) []wrappers.PrPol
 			prPolicy.Name = policy.Name
 			prPolicy.BreakBuild = policy.BreakBuild
 			prPolicy.RulesNames = policy.RulesViolated
+			prPolicy.Findings = collectFindingsForRules(policy.RulesViolated, findingsByRule)
 			prPolicies = append(prPolicies, prPolicy)
 		}
 	}
 	return prPolicies
+}
+
+// getRuleName returns the rule name for a scan result.
+// SAST, SCA, KICS, and containers results carry the rule name in QueryName.
+// SCS/SSCS results (secret detection, scorecard) carry it in RuleName instead.
+func getRuleName(result *wrappers.ScanResult) string {
+	if result.ScanResultData.QueryName != "" {
+		return result.ScanResultData.QueryName
+	}
+	return result.ScanResultData.RuleName
+}
+
+// buildFindingsByRuleMap groups scan results by their rule name so they can be
+// associated with violated policy rules.
+//
+// Rule-level filters (e.g. "only HIGH severity", "exclude dev/test SCA dependencies")
+// configured in the Checkmarx policy engine are NOT applied here. The Checkmarx API
+// does not expose these filter configurations, so we cannot replicate them client-side.
+// The returned map therefore represents the maximal set of findings per rule name. The
+// RulesViolated list from the policy API is the authoritative signal — rules only appear
+// there after the policy engine has applied all its configured filters server-side.
+func buildFindingsByRuleMap(scanResults *wrappers.ScanResultsCollection) map[string][]wrappers.PrFinding {
+	findingsByRule := make(map[string][]wrappers.PrFinding)
+	if scanResults == nil {
+		return findingsByRule
+	}
+	for _, result := range scanResults.Results {
+		ruleName := getRuleName(result)
+		if ruleName == "" {
+			continue
+		}
+		finding := wrappers.PrFinding{
+			ID:           result.ID,
+			Type:         result.Type,
+			Severity:     result.Severity,
+			State:        result.State,
+			SimilarityID: result.SimilarityID,
+		}
+		findingsByRule[ruleName] = append(findingsByRule[ruleName], finding)
+	}
+	return findingsByRule
+}
+
+func collectFindingsForRules(rulesViolated []string, findingsByRule map[string][]wrappers.PrFinding) []wrappers.PrFinding {
+	var findings []wrappers.PrFinding
+	for _, rule := range rulesViolated {
+		if ruleFindings, ok := findingsByRule[rule]; ok {
+			findings = append(findings, ruleFindings...)
+		}
+	}
+	return findings
 }

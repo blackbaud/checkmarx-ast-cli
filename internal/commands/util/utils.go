@@ -46,6 +46,7 @@ func NewUtilsCommand(
 	applicationsWrapper wrappers.ApplicationsWrapper,
 	byorWrapper wrappers.ByorWrapper,
 	featureFlagsWrapper wrappers.FeatureFlagsWrapper,
+	resultsWrapper wrappers.ResultsWrapper,
 ) *cobra.Command {
 	utilsCmd := &cobra.Command{
 		Use:   "utils",
@@ -71,7 +72,7 @@ func NewUtilsCommand(
 
 	completionCmd := NewCompletionCommand()
 
-	prDecorationCmd := NewPRDecorationCommand(prWrapper, policyWrapper, scansWrapper)
+	prDecorationCmd := NewPRDecorationCommand(prWrapper, policyWrapper, scansWrapper, resultsWrapper)
 
 	remediationCmd := NewRemediationCommand()
 

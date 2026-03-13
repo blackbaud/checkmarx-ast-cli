@@ -3,6 +3,7 @@ package util
 import (
 	"testing"
 
+	"github.com/checkmarx/ast-cli/internal/wrappers"
 	"github.com/checkmarx/ast-cli/internal/wrappers/mock"
 	asserts "github.com/stretchr/testify/assert"
 
@@ -14,7 +15,7 @@ const (
 )
 
 func TestNewGithubPRDecorationCommandMustExist(t *testing.T) {
-	cmd := PRDecorationGithub(nil, nil, nil)
+	cmd := PRDecorationGithub(nil, nil, nil, nil)
 	assert.Assert(t, cmd != nil, "PR decoration command must exist")
 
 	err := cmd.Execute()
@@ -22,7 +23,7 @@ func TestNewGithubPRDecorationCommandMustExist(t *testing.T) {
 }
 
 func TestNewGitlabMRDecorationCommandMustExist(t *testing.T) {
-	cmd := PRDecorationGitlab(nil, nil, nil)
+	cmd := PRDecorationGitlab(nil, nil, nil, nil)
 	assert.Assert(t, cmd != nil, "MR decoration command must exist")
 
 	err := cmd.Execute()
@@ -30,7 +31,7 @@ func TestNewGitlabMRDecorationCommandMustExist(t *testing.T) {
 }
 
 func TestNewAzurePRDecorationCommandMustExist(t *testing.T) {
-	cmd := PRDecorationAzure(nil, nil, nil)
+	cmd := PRDecorationAzure(nil, nil, nil, nil)
 	assert.Assert(t, cmd != nil, "PR decoration command must exist")
 
 	err := cmd.Execute()
@@ -54,8 +55,301 @@ func TestIsScanRunning_WhenScanDone_ShouldReturnFalse(t *testing.T) {
 func TestPRDecorationGithub_WhenNoViolatedPolicies_ShouldNotReturnPolicy(t *testing.T) {
 	prMockWrapper := &mock.PolicyMockWrapper{}
 	policyResponse, _, _ := prMockWrapper.EvaluatePolicy(nil)
-	prPolicy := policiesToPrPolicies(policyResponse)
+	prPolicy := policiesToPrPolicies(policyResponse, nil)
 	asserts.True(t, len(prPolicy) == 0)
+}
+
+func TestPoliciesToPrPolicies_WhenViolatedPoliciesWithMatchingFindings_ShouldIncludeFindings(t *testing.T) {
+	policyWrapper := &mock.PolicyMockWrapper{ViolatedRules: []string{"mock-query-name-1"}}
+	policyResponse, _, _ := policyWrapper.EvaluatePolicy(nil)
+
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:           "finding-1",
+				Type:         "sast",
+				Severity:     "high",
+				State:        "TO_VERIFY",
+				SimilarityID: "sim-1",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "mock-query-name-1",
+				},
+			},
+			{
+				ID:           "finding-2",
+				Type:         "sast",
+				Severity:     "medium",
+				State:        "TO_VERIFY",
+				SimilarityID: "sim-2",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "other-rule",
+				},
+			},
+		},
+	}
+
+	prPolicies := policiesToPrPolicies(policyResponse, scanResults)
+
+	asserts.Equal(t, 1, len(prPolicies))
+	asserts.Equal(t, "MOCK_NAME", prPolicies[0].Name)
+	asserts.Equal(t, 1, len(prPolicies[0].Findings))
+	asserts.Equal(t, "finding-1", prPolicies[0].Findings[0].ID)
+	asserts.Equal(t, "sast", prPolicies[0].Findings[0].Type)
+	asserts.Equal(t, "high", prPolicies[0].Findings[0].Severity)
+	asserts.Equal(t, "TO_VERIFY", prPolicies[0].Findings[0].State)
+	asserts.Equal(t, "sim-1", prPolicies[0].Findings[0].SimilarityID)
+}
+
+func TestPoliciesToPrPolicies_WhenViolatedPoliciesWithNoMatchingFindings_ShouldReturnEmptyFindings(t *testing.T) {
+	policyWrapper := &mock.PolicyMockWrapper{ViolatedRules: []string{"some-rule"}}
+	policyResponse, _, _ := policyWrapper.EvaluatePolicy(nil)
+
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:       "finding-1",
+				Type:     "sast",
+				Severity: "high",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "different-rule",
+				},
+			},
+		},
+	}
+
+	prPolicies := policiesToPrPolicies(policyResponse, scanResults)
+
+	asserts.Equal(t, 1, len(prPolicies))
+	asserts.Equal(t, 0, len(prPolicies[0].Findings))
+}
+
+func TestPoliciesToPrPolicies_WhenNilScanResults_ShouldReturnEmptyFindings(t *testing.T) {
+	policyWrapper := &mock.PolicyMockWrapper{ViolatedRules: []string{"some-rule"}}
+	policyResponse, _, _ := policyWrapper.EvaluatePolicy(nil)
+
+	prPolicies := policiesToPrPolicies(policyResponse, nil)
+
+	asserts.Equal(t, 1, len(prPolicies))
+	asserts.Equal(t, 0, len(prPolicies[0].Findings))
+}
+
+func TestBuildFindingsByRuleMap_WhenNilResults_ShouldReturnEmptyMap(t *testing.T) {
+	result := buildFindingsByRuleMap(nil)
+	asserts.Equal(t, 0, len(result))
+}
+
+func TestBuildFindingsByRuleMap_WhenResultsWithQueryNames_ShouldGroupByRule(t *testing.T) {
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:       "1",
+				Type:     "sast",
+				Severity: "high",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "rule-a",
+				},
+			},
+			{
+				ID:       "2",
+				Type:     "sast",
+				Severity: "medium",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "rule-a",
+				},
+			},
+			{
+				ID:       "3",
+				Type:     "sca",
+				Severity: "low",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "rule-b",
+				},
+			},
+		},
+	}
+
+	result := buildFindingsByRuleMap(scanResults)
+
+	asserts.Equal(t, 2, len(result))
+	asserts.Equal(t, 2, len(result["rule-a"]))
+	asserts.Equal(t, 1, len(result["rule-b"]))
+}
+
+func TestBuildFindingsByRuleMap_WhenSCSResultsWithRuleName_ShouldGroupByRuleName(t *testing.T) {
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:       "scs-1",
+				Type:     "sscs-secret-detection",
+				Severity: "HIGH",
+				State:    "TO_VERIFY",
+				ScanResultData: wrappers.ScanResultData{
+					// QueryName is intentionally empty — SCS results use RuleName
+					RuleName: "generic-api-key",
+				},
+			},
+			{
+				ID:       "scs-2",
+				Type:     "sscs-scorecard",
+				Severity: "LOW",
+				State:    "TO_VERIFY",
+				ScanResultData: wrappers.ScanResultData{
+					RuleName: "branch-protection",
+				},
+			},
+		},
+	}
+
+	result := buildFindingsByRuleMap(scanResults)
+
+	asserts.Equal(t, 2, len(result))
+	asserts.Equal(t, 1, len(result["generic-api-key"]))
+	asserts.Equal(t, "scs-1", result["generic-api-key"][0].ID)
+	asserts.Equal(t, 1, len(result["branch-protection"]))
+	asserts.Equal(t, "scs-2", result["branch-protection"][0].ID)
+}
+
+func TestBuildFindingsByRuleMap_WhenQueryNameTakesPrecedenceOverRuleName(t *testing.T) {
+	// If a result somehow has both QueryName and RuleName, QueryName wins
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:   "1",
+				Type: "sast",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "query-name-wins",
+					RuleName:  "rule-name-loses",
+				},
+			},
+		},
+	}
+
+	result := buildFindingsByRuleMap(scanResults)
+
+	asserts.Equal(t, 1, len(result))
+	_, hasQueryKey := result["query-name-wins"]
+	asserts.True(t, hasQueryKey)
+	_, hasRuleKey := result["rule-name-loses"]
+	asserts.False(t, hasRuleKey)
+}
+
+func TestBuildFindingsByRuleMap_WhenResultHasNeitherQueryNorRuleName_ShouldSkip(t *testing.T) {
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:             "1",
+				Type:           "unknown",
+				ScanResultData: wrappers.ScanResultData{
+					// both empty
+				},
+			},
+		},
+	}
+
+	result := buildFindingsByRuleMap(scanResults)
+
+	asserts.Equal(t, 0, len(result))
+}
+
+func TestGetRuleName_WhenQueryNameSet_ShouldReturnQueryName(t *testing.T) {
+	result := &wrappers.ScanResult{
+		ScanResultData: wrappers.ScanResultData{
+			QueryName: "SQL_Injection",
+			RuleName:  "some-rule",
+		},
+	}
+	asserts.Equal(t, "SQL_Injection", getRuleName(result))
+}
+
+func TestGetRuleName_WhenOnlyRuleNameSet_ShouldReturnRuleName(t *testing.T) {
+	result := &wrappers.ScanResult{
+		ScanResultData: wrappers.ScanResultData{
+			RuleName: "generic-api-key",
+		},
+	}
+	asserts.Equal(t, "generic-api-key", getRuleName(result))
+}
+
+func TestGetRuleName_WhenBothEmpty_ShouldReturnEmpty(t *testing.T) {
+	result := &wrappers.ScanResult{
+		ScanResultData: wrappers.ScanResultData{},
+	}
+	asserts.Equal(t, "", getRuleName(result))
+}
+
+func TestPoliciesToPrPolicies_WhenViolatedPolicyMatchesSCSFinding_ShouldIncludeFinding(t *testing.T) {
+	policyWrapper := &mock.PolicyMockWrapper{ViolatedRules: []string{"generic-api-key"}}
+	policyResponse, _, _ := policyWrapper.EvaluatePolicy(nil)
+
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:           "scs-1",
+				Type:         "sscs-secret-detection",
+				Severity:     "HIGH",
+				State:        "TO_VERIFY",
+				SimilarityID: "sim-scs-1",
+				ScanResultData: wrappers.ScanResultData{
+					// No QueryName — SCS/SSCS results use RuleName
+					RuleName: "generic-api-key",
+				},
+			},
+		},
+	}
+
+	prPolicies := policiesToPrPolicies(policyResponse, scanResults)
+
+	asserts.Equal(t, 1, len(prPolicies))
+	asserts.Equal(t, 1, len(prPolicies[0].Findings))
+	asserts.Equal(t, "scs-1", prPolicies[0].Findings[0].ID)
+	asserts.Equal(t, "sscs-secret-detection", prPolicies[0].Findings[0].Type)
+	asserts.Equal(t, "HIGH", prPolicies[0].Findings[0].Severity)
+	asserts.Equal(t, "sim-scs-1", prPolicies[0].Findings[0].SimilarityID)
+}
+
+// TestBuildFindingsByRuleMap_RuleFilterLimitation documents that the implementation cannot
+// apply rule-level filters (e.g. "exclude dev/test dependencies") because the Checkmarx
+// API does not expose those filter configurations. All findings matching the rule name are
+// included — they represent the maximal set. The RulesViolated list from the policy API is
+// the authoritative signal (the policy engine applied all filters server-side).
+func TestBuildFindingsByRuleMap_RuleFilterLimitation_AllMatchingFindingsIncluded(t *testing.T) {
+	// A policy rule named "lodash-vulnerability" has been violated. Suppose the rule is
+	// configured in Checkmarx to exclude dev/test dependencies. We have two SCA findings for
+	// the same rule: one production dependency and one dev dependency. Because we cannot
+	// retrieve the rule's filter configuration from the API, both findings are included.
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:       "sca-prod",
+				Type:     "sca",
+				Severity: "high",
+				State:    "TO_VERIFY",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "lodash-vulnerability",
+					// ScaPackageCollection.IsDevelopmentDependency would be false here (prod dep)
+					// but this field is only populated by the async export service, not the
+					// main results API used in getScanViolatedPolicies.
+				},
+			},
+			{
+				ID:       "sca-dev",
+				Type:     "sca",
+				Severity: "high",
+				State:    "TO_VERIFY",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "lodash-vulnerability",
+					// ScaPackageCollection.IsDevelopmentDependency would be true here (dev dep),
+					// but again, this data is unavailable without the export service.
+				},
+			},
+		},
+	}
+
+	result := buildFindingsByRuleMap(scanResults)
+
+	// Both findings are included because rule filters cannot be retrieved from the API.
+	asserts.Equal(t, 1, len(result))
+	asserts.Equal(t, 2, len(result["lodash-vulnerability"]))
 }
 
 func TestUpdateAPIURLForGithubOnPrem_whenAPIURLIsSet_ShouldUpdateAPIURL(t *testing.T) {
