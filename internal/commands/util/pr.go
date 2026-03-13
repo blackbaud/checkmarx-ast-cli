@@ -571,7 +571,10 @@ func getScanViolatedPolicies(scansWrapper wrappers.ScansWrapper, policyWrapper w
 	if errorScanModel != nil {
 		return nil, err
 	}
-	// retrieve policy information to send to the PR service
+	// retrieve policy information to send to the PR service.
+	// The Checkmarx policy engine applies all configured rule filters (e.g. severity thresholds,
+	// dev/test dependency exclusions) server-side before returning RulesViolated. The resulting
+	// list is therefore accurate: only rules that genuinely fired after filtering appear here.
 	policyResponseModel, err := policymanagement.HandlePolicyWait(waitDelayDefault,
 		resultPolicyDefaultTimeout,
 		policyWrapper,
@@ -581,7 +584,13 @@ func getScanViolatedPolicies(scansWrapper wrappers.ScansWrapper, policyWrapper w
 	if err != nil {
 		return nil, err
 	}
-	// retrieve scan results to associate findings with violated policies
+	// retrieve scan results to associate findings with violated policies.
+	// NOTE: The Checkmarx API does not expose the filter configuration of individual policy rules
+	// (e.g. "exclude dev/test dependencies", "only HIGH severity"). Consequently the findings
+	// attached to each PrPolicy are the maximal set that match the rule name — they may include
+	// results that the policy engine excluded via its rule filters. The RulesViolated list itself
+	// is authoritative (the server applied all filters), but the per-rule finding list is a
+	// best-effort approximation.
 	scanResults, _, err := resultsWrapper.GetAllResultsByScanID(map[string]string{params.ScanIDQueryParam: scanID})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to retrieve scan results for scan %s", scanID)
@@ -620,6 +629,15 @@ func getRuleName(result *wrappers.ScanResult) string {
 	return result.ScanResultData.RuleName
 }
 
+// buildFindingsByRuleMap groups scan results by their rule name so they can be
+// associated with violated policy rules.
+//
+// Rule-level filters (e.g. "only HIGH severity", "exclude dev/test SCA dependencies")
+// configured in the Checkmarx policy engine are NOT applied here. The Checkmarx API
+// does not expose these filter configurations, so we cannot replicate them client-side.
+// The returned map therefore represents the maximal set of findings per rule name. The
+// RulesViolated list from the policy API is the authoritative signal — rules only appear
+// there after the policy engine has applied all its configured filters server-side.
 func buildFindingsByRuleMap(scanResults *wrappers.ScanResultsCollection) map[string][]wrappers.PrFinding {
 	findingsByRule := make(map[string][]wrappers.PrFinding)
 	if scanResults == nil {
