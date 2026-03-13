@@ -610,13 +610,23 @@ func policiesToPrPolicies(policy *wrappers.PolicyResponseModel, scanResults *wra
 	return prPolicies
 }
 
+// getRuleName returns the rule name for a scan result.
+// SAST, SCA, KICS, and containers results carry the rule name in QueryName.
+// SCS/SSCS results (secret detection, scorecard) carry it in RuleName instead.
+func getRuleName(result *wrappers.ScanResult) string {
+	if result.ScanResultData.QueryName != "" {
+		return result.ScanResultData.QueryName
+	}
+	return result.ScanResultData.RuleName
+}
+
 func buildFindingsByRuleMap(scanResults *wrappers.ScanResultsCollection) map[string][]wrappers.PrFinding {
 	findingsByRule := make(map[string][]wrappers.PrFinding)
 	if scanResults == nil {
 		return findingsByRule
 	}
 	for _, result := range scanResults.Results {
-		ruleName := result.ScanResultData.QueryName
+		ruleName := getRuleName(result)
 		if ruleName == "" {
 			continue
 		}

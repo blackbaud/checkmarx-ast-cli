@@ -175,6 +175,138 @@ func TestBuildFindingsByRuleMap_WhenResultsWithQueryNames_ShouldGroupByRule(t *t
 	asserts.Equal(t, 1, len(result["rule-b"]))
 }
 
+func TestBuildFindingsByRuleMap_WhenSCSResultsWithRuleName_ShouldGroupByRuleName(t *testing.T) {
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:       "scs-1",
+				Type:     "sscs-secret-detection",
+				Severity: "HIGH",
+				State:    "TO_VERIFY",
+				ScanResultData: wrappers.ScanResultData{
+					// QueryName is intentionally empty — SCS results use RuleName
+					RuleName: "generic-api-key",
+				},
+			},
+			{
+				ID:       "scs-2",
+				Type:     "sscs-scorecard",
+				Severity: "LOW",
+				State:    "TO_VERIFY",
+				ScanResultData: wrappers.ScanResultData{
+					RuleName: "branch-protection",
+				},
+			},
+		},
+	}
+
+	result := buildFindingsByRuleMap(scanResults)
+
+	asserts.Equal(t, 2, len(result))
+	asserts.Equal(t, 1, len(result["generic-api-key"]))
+	asserts.Equal(t, "scs-1", result["generic-api-key"][0].ID)
+	asserts.Equal(t, 1, len(result["branch-protection"]))
+	asserts.Equal(t, "scs-2", result["branch-protection"][0].ID)
+}
+
+func TestBuildFindingsByRuleMap_WhenQueryNameTakesPrecedenceOverRuleName(t *testing.T) {
+	// If a result somehow has both QueryName and RuleName, QueryName wins
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:   "1",
+				Type: "sast",
+				ScanResultData: wrappers.ScanResultData{
+					QueryName: "query-name-wins",
+					RuleName:  "rule-name-loses",
+				},
+			},
+		},
+	}
+
+	result := buildFindingsByRuleMap(scanResults)
+
+	asserts.Equal(t, 1, len(result))
+	_, hasQueryKey := result["query-name-wins"]
+	asserts.True(t, hasQueryKey)
+	_, hasRuleKey := result["rule-name-loses"]
+	asserts.False(t, hasRuleKey)
+}
+
+func TestBuildFindingsByRuleMap_WhenResultHasNeitherQueryNorRuleName_ShouldSkip(t *testing.T) {
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:             "1",
+				Type:           "unknown",
+				ScanResultData: wrappers.ScanResultData{
+					// both empty
+				},
+			},
+		},
+	}
+
+	result := buildFindingsByRuleMap(scanResults)
+
+	asserts.Equal(t, 0, len(result))
+}
+
+func TestGetRuleName_WhenQueryNameSet_ShouldReturnQueryName(t *testing.T) {
+	result := &wrappers.ScanResult{
+		ScanResultData: wrappers.ScanResultData{
+			QueryName: "SQL_Injection",
+			RuleName:  "some-rule",
+		},
+	}
+	asserts.Equal(t, "SQL_Injection", getRuleName(result))
+}
+
+func TestGetRuleName_WhenOnlyRuleNameSet_ShouldReturnRuleName(t *testing.T) {
+	result := &wrappers.ScanResult{
+		ScanResultData: wrappers.ScanResultData{
+			RuleName: "generic-api-key",
+		},
+	}
+	asserts.Equal(t, "generic-api-key", getRuleName(result))
+}
+
+func TestGetRuleName_WhenBothEmpty_ShouldReturnEmpty(t *testing.T) {
+	result := &wrappers.ScanResult{
+		ScanResultData: wrappers.ScanResultData{},
+	}
+	asserts.Equal(t, "", getRuleName(result))
+}
+
+func TestPoliciesToPrPolicies_WhenViolatedPolicyMatchesSCSFinding_ShouldIncludeFinding(t *testing.T) {
+	policyWrapper := &mock.PolicyMockWrapper{ViolatedRules: []string{"generic-api-key"}}
+	policyResponse, _, _ := policyWrapper.EvaluatePolicy(nil)
+
+	scanResults := &wrappers.ScanResultsCollection{
+		Results: []*wrappers.ScanResult{
+			{
+				ID:           "scs-1",
+				Type:         "sscs-secret-detection",
+				Severity:     "HIGH",
+				State:        "TO_VERIFY",
+				SimilarityID: "sim-scs-1",
+				ScanResultData: wrappers.ScanResultData{
+					// No QueryName — SCS/SSCS results use RuleName
+					RuleName: "generic-api-key",
+				},
+			},
+		},
+	}
+
+	prPolicies := policiesToPrPolicies(policyResponse, scanResults)
+
+	asserts.Equal(t, 1, len(prPolicies))
+	asserts.Equal(t, 1, len(prPolicies[0].Findings))
+	asserts.Equal(t, "scs-1", prPolicies[0].Findings[0].ID)
+	asserts.Equal(t, "sscs-secret-detection", prPolicies[0].Findings[0].Type)
+	asserts.Equal(t, "HIGH", prPolicies[0].Findings[0].Severity)
+	asserts.Equal(t, "sim-scs-1", prPolicies[0].Findings[0].SimilarityID)
+}
+
 func TestUpdateAPIURLForGithubOnPrem_whenAPIURLIsSet_ShouldUpdateAPIURL(t *testing.T) {
 	selfHostedURL := "https://github.example.com"
 	updatedAPIURL := updateAPIURLForGithubOnPrem(selfHostedURL)
